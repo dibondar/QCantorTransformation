@@ -32,13 +32,33 @@ class BHSkolemPropagator(object):
         S_min = skolem((K - 1) * [0] + [N])
         S_max = skolem([N] + (K - 1) * [0])
 
-        skolem_indx = np.arange(S_min, S_max + 1)
+        ################################################################################################################
+        # Generates the K-tuple of nonnegative integers that sum up to N
+        #
+        # This can be accomplished as
+        #
+        #    skolem_indx = np.arange(S_min, S_max + 1)
+        #    n = np.array(
+        #        [tuple_from_skolem(S, K) for S in skolem_indx]
+        #    ).T
+        #
+        # The following code is equivalent, but it runs much faster.
+        #
+        ################################################################################################################
 
-        # This should be parallelized to speed up
-        #  or replaced by boson_basis_1d[::-1] from QuSpin since they are compatible (see the comment below)
-        n = np.array(
-            [tuple_from_skolem(S, K) for S in skolem_indx]
-        ).T
+        def generate_tuples(N, K):
+            def generate_tuples_recursive(N, K, prefix=[]):
+                if K == 1:
+                    if N >= sum(prefix):
+                        yield prefix + [N - sum(prefix)]
+                else:
+                    for i in range(N - sum(prefix), -1, -1):
+                        yield from generate_tuples_recursive(N, K - 1, prefix + [i])
+
+            return generate_tuples_recursive(N, K)
+
+        n = list(generate_tuples(N, K))
+        n = np.array(n).T[::-1]
 
         ################################################################################################################
         # Reindexing to implement the permutation matrix
