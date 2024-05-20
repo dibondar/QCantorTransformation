@@ -92,7 +92,7 @@ class BHSkolemPropagator(object):
         # where $\hat{H}_{nn}$ stands for nearest neighbor hamiltonian
         ################################################################################################################
 
-        # diagonal of the tri-diagonal Hamiltonian H_nn
+        # diagonal of the tri-diagonal Hamiltonian H
         d = -(mu + 0.5 * U) * n[-2] + 0.5 * U * n[-2] ** 2
 
         # off diagonal of the full tri-diagonal Hamiltonian H23
@@ -106,7 +106,7 @@ class BHSkolemPropagator(object):
         if block_edges[-1] != d.size:
             block_edges = np.append(block_edges, [d.size])
 
-        expH_nn = []
+        expH = []
 
         # Find matrix exponential via diagonalization of each block separately
         for end_block in block_edges:
@@ -115,42 +115,20 @@ class BHSkolemPropagator(object):
                 e[start_block:end_block - 1],
             )
 
-            expH_nn.append(
+            expH.append(
                 (block_v * np.exp(-1j * 0.5 * dt * block_E)) @ block_v.T
             )
+
 
             start_block = end_block
 
         # Save as a sparse matrix
-        self.expH_nn = block_diag(expH_nn)
+        self.expH = block_diag(expH)
 
         ################################################################################################################
         # Prepare for Open boundary condition
         ################################################################################################################
-
-        # extra phase factor (due to the on-site interaction)
-        # that needs to be taken into account in the case of the open boundary condition
-        d_edge = d - (mu + 0.5 * U) * n[-1] + 0.5 * U * n[-1] ** 2
-
-        expH_edge = []
-
-        start_block = 0
-
-        # Find matrix exponential via diagonalization of each block separately
-        for end_block in block_edges:
-            block_E, block_v = eigh_tridiagonal(
-                d_edge[start_block:end_block],
-                e[start_block:end_block - 1],
-            )
-
-            expH_edge.append(
-                (block_v * np.exp(-1j * dt * block_E)) @ block_v.T
-            )
-
-            start_block = end_block
-
-        # Save as a sparse matrix
-        self.expH_edge = block_diag(expH_edge)
+        self.expDiag = np.exp(-1j * dt * d)
 
     def propagate(self, psi, ntimes = 1, is_pbc = False):
         """
@@ -161,31 +139,40 @@ class BHSkolemPropagator(object):
         :param is_pbc: Boundary condition. True for periodic boundary condition, False for open boundary condition.
         :return: np.ndarray - the wavefunction after propagator
         """
-        expH_nn = self.expH_nn
+        expH = self.expH
         indx = self.indx
         indx_T = self.indx_T
 
         if is_pbc:
             # Periodic boundary condition
-            for _ in range(ntimes):
 
-                for __ in range(self.K):
-                    psi = expH_nn @ psi
+            # 1. rising then 2. falling indices gives better performance          
+            # THAN 1.falling then 2. rising indices   WHY ??
+            
+            for _ in range(ntimes):
+                    
+                for __ in range(1, self.K + 1):
+                    # rising index
+                    psi = expH @ psi
                     psi = psi[indx_T]
 
-                for __ in range(self.K):
-                    psi = expH_nn @ psi[indx]
+                for __ in range(1, self.K + 1):
+                    # falling index
+                    psi = psi[indx]
+                    psi = expH @ psi
+                    
         else:
             # Open boundary condition
             for _ in range(ntimes):
-
-                for __ in range(2, self.K):
-                    psi = expH_nn @ psi
+            
+                for __ in range(1, self.K):
+                    psi = expH @ psi
                     psi = psi[indx_T]
 
-                psi = self.expH_edge @ psi
+                psi *= self.expDiag
 
-                for __ in range(2, self.K):
-                    psi = expH_nn @ psi[indx]
+                for __ in range(1, self.K):
+                    psi = psi[indx]
+                    psi = expH @ psi
 
         return psi
